@@ -15,4 +15,4 @@ Run the command "python downloader.py"
 
 Known limitations:
 
-The app cannot download multiple files simultaneously.
+The app cannot download multiple files simultaneously (this feature will be added soon).
