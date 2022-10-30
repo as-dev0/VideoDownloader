@@ -3,9 +3,9 @@ import yt_dlp
 import ctypes
 import threading
 import asyncio
+import time
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib
-
 
 class DownloaderWindow(Gtk.Window):
 
@@ -13,19 +13,23 @@ class DownloaderWindow(Gtk.Window):
 
         # Create Gtk window
         super().__init__(title="Video Downloader")
-        self.set_size_request(500,300)
+        self.set_size_request(500,500)
         self.set_border_width(20)
         self.connect("destroy", Gtk.main_quit)
 
         self.downloadLocation = ""
         self.progressBars = []
-        self.titles = []
-        self.downloadThreads = []
-        self.filenames = {}
-        self.progressPercentages = []
-        
+        self.downloadThreads = {}
+        self.progressPercentages = {}
+        self.titlesToAdd = {}
+        self.idToN = {}                 # This dictionary links video IDs to its number in the program = {  id1: videoNumber1, id2: videoNumber2self.idToN }
+        self.lock = threading.Lock()
+
+        scrollWindow = Gtk.ScrolledWindow()
+        scrollWindow.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
         # self.vbox will contain all the Gtk widgets
-        self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
 
         header = Gtk.Label()
         header.set_label("Enter URL here:")
@@ -42,19 +46,44 @@ class DownloaderWindow(Gtk.Window):
         changeDownloadLocation.connect("clicked", self.selectDownloadLocation)
         self.vbox.add(changeDownloadLocation)
 
-        self.add(self.vbox)
+        scrollWindow.add(self.vbox)
 
-        GLib.timeout_add(300, self.autoUpdateProgress)
+        self.add(scrollWindow)
 
-    # This function is run automatically every 300 ms and updates all progress bars
+        GLib.timeout_add(500, self.autoRun)
+
+    # This function is called by the GLib loop every 500ms
+    def autoRun(self):
+
+        self.autoUpdateProgress()
+        self.autoAddTitles()
+        return True
+
+    # This function is run automatically every 500 ms and updates all progress bars
     def autoUpdateProgress(self):
 
-        if len(self.progressBars) != len(self.progressPercentages):
-            return True
-
         for i in range(len(self.progressBars)):
-            self.progressBars[i].set_fraction(self.progressPercentages[i])
-        
+            if i in self.progressPercentages:
+                self.progressBars[i].set_fraction(self.progressPercentages[i])
+
+        return True
+
+    # This function is run automatically every 500ms and adds titles to the progress
+    # bars after they are fetched
+    def autoAddTitles(self):
+
+        if len(self.titlesToAdd.keys()) != 0:
+
+            keysToRemove = []
+
+            for k in self.titlesToAdd:
+
+                self.progressBars[k].set_text(self.titlesToAdd[k])
+                keysToRemove.append(k)
+            
+            for k in keysToRemove:
+                del self.titlesToAdd[k]
+
         return True
 
     # Terminate thread at position threadNumber in self.downloadThreads
@@ -64,9 +93,7 @@ class DownloaderWindow(Gtk.Window):
         ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(self.downloadThreads[threadNumber].ident), ctypes.py_object(SystemExit))
     
     # Adds a progress bar for a video
-    def add_progress_bar(self, title, numberProgressBars):
-
-        print("\nAdding progress bar")
+    def addProgressBar(self, title, numberProgressBars):
 
         nestedBox = Gtk.Box(spacing=20)
         progressBar = Gtk.ProgressBar()
@@ -78,52 +105,66 @@ class DownloaderWindow(Gtk.Window):
         cancelButton.connect("clicked", self.terminateThread, numberProgressBars)
         nestedBox.add(cancelButton)
 
-        self.titles.append(title)
         self.progressBars.append(progressBar)
-
         self.vbox.add(nestedBox)
         self.show_all()
 
     # A progress hook that updates the download progress in self.progressPercentages
-    def updateProgress(self, d):
+    # The parameter d is a dictionary of information supplied by yt_dlp
+    def progressHook(self, d):
 
         p = d['_percent_str']
         p = p.replace('%','')
-        
-        if d['filename'] not in self.filenames:
-            self.filenames[d['filename']] = len(self.titles) - 1
-            n = len(self.titles) - 1
-        else:
-            n = self.filenames[d['filename']]
+    
+        for id in self.idToN:
 
+            if id == d['info_dict']['id']:
+                
+                self.progressPercentages[self.idToN[id]] = float(p[7:11])/100
+                break
+
+    # This function is run in a separate thread and obtains the video title and downloads
+    # the video at the specified url
+    def downloadVideo(self, url, videoNumber):
+
+        if url == "" :
+            self.lock.acquire()
+            self.titlesToAdd[videoNumber] = "Empty url"
+            self.lock.release()
+            
+            return
+            
         try:
-            self.progressPercentages[n] = float(p[7:11])/100
-        except:
-            self.progressPercentages.append(float(p[7:11])/100)
+            print("URL = " + url)
+            infoDict = yt_dlp.YoutubeDL().extract_info(url, download=False)
+            print("Title = " + infoDict["title"])
+
+            self.lock.acquire()
+            self.titlesToAdd[videoNumber] = infoDict["title"]
+            self.idToN[infoDict["id"]] = videoNumber
+            self.lock.release()
+
+            if self.downloadLocation == "":
+                yt_dlp.YoutubeDL({'progress_hooks':[self.progressHook]}).download([url])
+            else:
+                yt_dlp.YoutubeDL({'outtmpl':self.downloadLocation+"/%(title)s.%(ext)s", 'progress_hooks':[self.progressHook]}).download([url])
+
+        except Exception as e:
+            print("Error " + str(e))
+            self.lock.acquire()
+            self.titlesToAdd[videoNumber] = "Error: " + str(e)
+            self.lock.release()
 
     # Downloads a video and selects the highest quality available.
     # This function runs when the user clicks on the Download button.
     def download(self, widget):
 
-        def downloadVideo(title, url):
+        url = self.url.get_text()
+        videoNumber = len(self.progressBars)
+        self.addProgressBar("Obtaining title...", videoNumber)
 
-            if self.downloadLocation == "":
-                yt_dlp.YoutubeDL({'progress_hooks':[self.updateProgress]}).download([self.url.get_text()])
-            else:
-                yt_dlp.YoutubeDL({ 'outtmpl':self.downloadLocation+"/%(title)s.%(ext)s", 'progress_hooks':[self.updateProgress]}).download([self.url.get_text()])
-
-        try:
-            print("URL = " + self.url.get_text())
-            infoDict = yt_dlp.YoutubeDL().extract_info(self.url.get_text(), download=False)
-            print("Title = " + infoDict["title"])
-        except:
-            print("Please enter valid url")
-            return
-
-        self.add_progress_bar(infoDict["title"], len(self.progressBars))
-
-        downloadThread = threading.Thread(target=downloadVideo, args=(infoDict["title"], self.url.get_text()))
-        self.downloadThreads.append(downloadThread)
+        downloadThread = threading.Thread(target=self.downloadVideo, args=(url, videoNumber))
+        self.downloadThreads[videoNumber] = downloadThread
         downloadThread.start()
 
     # Opens a dialog that allows the user to select a folder to be used
@@ -141,14 +182,13 @@ class DownloaderWindow(Gtk.Window):
             filename = dialog.get_filename()
             self.downloadLocation = filename
             print("Selected download location: " + filename)
-            
-        elif response == Gtk.ResponseType.CANCEL:
-            print("Cancel clicked")
 
         dialog.destroy()
 
 
-win = DownloaderWindow()
-win.show_all()
+if __name__ == "__main__":
 
-Gtk.main()
+    win = DownloaderWindow()
+    win.show_all()
+
+    Gtk.main()
