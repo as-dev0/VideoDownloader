@@ -13,15 +13,16 @@ class DownloaderWindow(Gtk.Window):
 
         # Create Gtk window
         super().__init__(title="Video Downloader")
-        self.set_size_request(500,500)
+        self.set_size_request(800,500)
         self.set_border_width(20)
         self.connect("destroy", Gtk.main_quit)
 
         self.downloadLocation = ""
-        self.progressBars = []
-        self.downloadThreads = {}
-        self.progressPercentages = {}
-        self.titlesToAdd = {}
+        self.titleLabels = []
+        self.progressLabels = []
+        self.downloadThreads = {}       # This dictionary is of the form { videoNumber1 : downloadThread1 , videoNumber2 : downloadThread2 , ...  }
+        self.progressPercentages = {}   # This dictionary is of the form { videoNumber1 : percentageProgressOfVideo1 , videoNumber2: percentageProgressOfVideo2 , ...  }
+        self.titlesToAdd = {}           # This dictionary is of the form { videoNumber1 : titleOfVideo1 , videoNumber2 : titleOfVideo2 , ...}
         self.idToN = {}                 # This dictionary links video IDs to its number in the program = {  id1: videoNumber1, id2: videoNumber2self.idToN }
         self.lock = threading.Lock()
 
@@ -29,7 +30,7 @@ class DownloaderWindow(Gtk.Window):
         scrollWindow.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
         # self.vbox will contain all the Gtk widgets
-        self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
+        self.vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=30)
 
         header = Gtk.Label()
         header.set_label("Enter URL here:")
@@ -38,13 +39,17 @@ class DownloaderWindow(Gtk.Window):
         self.url = Gtk.Entry()
         self.vbox.add(self.url)
 
+        self.hbox = Gtk.Box(spacing = 20)
+
         downloadButton = Gtk.Button(label="Download")
         downloadButton.connect("clicked", self.download)
-        self.vbox.add(downloadButton)
+        self.hbox.pack_start(downloadButton, False, False, 0)
 
         changeDownloadLocation = Gtk.Button(label="Change download location")
         changeDownloadLocation.connect("clicked", self.selectDownloadLocation)
-        self.vbox.add(changeDownloadLocation)
+        self.hbox.pack_end(changeDownloadLocation, False, True, 0)
+
+        self.vbox.add(self.hbox)
 
         scrollWindow.add(self.vbox)
 
@@ -62,9 +67,9 @@ class DownloaderWindow(Gtk.Window):
     # This function is run automatically every 500 ms and updates all progress bars
     def autoUpdateProgress(self):
 
-        for i in range(len(self.progressBars)):
+        for i in range(len(self.titleLabels)):
             if i in self.progressPercentages:
-                self.progressBars[i].set_fraction(self.progressPercentages[i])
+                self.progressLabels[i].set_label(str(round(self.progressPercentages[i]*100)) + " %" )
 
         return True
 
@@ -78,7 +83,7 @@ class DownloaderWindow(Gtk.Window):
 
             for k in self.titlesToAdd:
 
-                self.progressBars[k].set_text(self.titlesToAdd[k])
+                self.titleLabels[k].set_label(self.titlesToAdd[k])
                 keysToRemove.append(k)
             
             for k in keysToRemove:
@@ -96,16 +101,21 @@ class DownloaderWindow(Gtk.Window):
     def addProgressBar(self, title, numberProgressBars):
 
         nestedBox = Gtk.Box(spacing=20)
-        progressBar = Gtk.ProgressBar()
-        progressBar.set_text(title)
-        progressBar.set_show_text(title)
-        nestedBox.add(progressBar)
+
+        titleLabel = Gtk.Label()
+        titleLabel.set_label(title)
+        nestedBox.add(titleLabel)
 
         cancelButton = Gtk.Button(label="Cancel")
         cancelButton.connect("clicked", self.terminateThread, numberProgressBars)
-        nestedBox.add(cancelButton)
+        nestedBox.pack_end(cancelButton, False, True, 10)
 
-        self.progressBars.append(progressBar)
+        percentageLabel = Gtk.Label()
+        percentageLabel.set_label("0 %")
+        nestedBox.pack_end(percentageLabel, False, True, 10)
+
+        self.titleLabels.append(titleLabel)
+        self.progressLabels.append(percentageLabel)
         self.vbox.add(nestedBox)
         self.show_all()
 
@@ -160,7 +170,7 @@ class DownloaderWindow(Gtk.Window):
     def download(self, widget):
 
         url = self.url.get_text()
-        videoNumber = len(self.progressBars)
+        videoNumber = len(self.titleLabels)
         self.addProgressBar("Obtaining title...", videoNumber)
 
         downloadThread = threading.Thread(target=self.downloadVideo, args=(url, videoNumber))
