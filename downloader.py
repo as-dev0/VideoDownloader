@@ -130,7 +130,7 @@ class DownloaderWindow(Gtk.Window):
 
             if id == d['info_dict']['id']:
                 
-                self.progressPercentages[self.idToN[id]] = float(p[7:11])/100
+                self.progressPercentages[self.idToN[id]] = float(p[7:10])/100
                 break
 
     # This function is run in a separate thread and obtains the video title and downloads
