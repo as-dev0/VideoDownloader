@@ -1,6 +1,6 @@
 # VideoDownloader
 
-Video downloader is a python app built with Gtk that allows you to download videos from many websites.
+Video downloader is a Python app built with Gtk that allows you to download videos from many websites.
 
 
 Requirements: 
@@ -13,6 +13,6 @@ How to use:
 Run the command "python downloader.py"
 
 
-Known limitations:
+Example:
 
-The app cannot download multiple files simultaneously (this feature will be added soon).
+![Video](https://user-images.githubusercontent.com/114560165/199879464-1dd0f262-2919-460e-b16a-5f0950dcbf20.png)
